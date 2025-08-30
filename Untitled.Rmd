@@ -296,11 +296,13 @@ lga_centroids[numeric_cols] <- lapply(lga_centroids[numeric_cols], function(x) {
 })
 
 # Now rowMeans 
-lga_centroids$composite_score <- lga_centroids %>%
-  st_drop_geometry() %>%
-  dplyr::select(all_of(numeric_cols)) %>%
-  as.matrix() %>%
-  rowMeans(na.rm = TRUE)
+lga_centroids$composite_score <- (
+  (lga_centroids$power_score + lga_centroids$power_station_score + lga_centroids$transmission_score) / 3 * 0.35 +
+  (lga_centroids$pop_score + lga_centroids$rail_score) / 2 * 0.25 +
+  (lga_centroids$fire_risk_score + lga_centroids$cyclone_risk_score) / 2 * 0.15 +
+  lga_centroids$cooling_score * 0.15 +
+  lga_centroids$reliability_score * 0.10
+)
 
 
 lga_centroids <- lga_centroids %>%
