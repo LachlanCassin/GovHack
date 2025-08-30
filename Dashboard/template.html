@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{title}}</title>
+  <link rel="stylesheet" href="style.css">
+  {{ headContent() }}
+</head>
+<body>
+  <header class="site-header"><h1>{{pageHeading}}</h1></header>
+  <main class="container dashboard-grid">
+  <section class="panel panel--map">{{ map }}</section>
+  <section class="panel panel--scores">{{ scores }}</section>
+  <section class="panel panel--risk">{{ risk }}</section>
+  </main>
+</body>
+</html>

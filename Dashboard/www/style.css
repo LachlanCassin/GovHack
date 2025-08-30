@@ -1,0 +1,58 @@
+:root{
+  --brand:#1e3a8a;      /* primary */
+  --accent:#0ea5e9;     /* secondary */
+  --bg:#f7f8fb;         /* page background */
+  --panel:#ffffff;      /* card/panel bg */
+  --text:#111827;       /* body text */
+  --muted:#6b7280;      /* subdued text */
+  --radius:12px;        /* global corner radius */
+  --shadow:0 6px 18px rgba(0,0,0,.06);
+  --space-1:6px; --space-2:10px; --space-3:16px; --space-4:24px;
+}
+
+html,body{
+  margin:0;
+  font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color:var(--text); background:var(--bg);
+  margin:16px;
+}
+
+.dashboard-grid{
+  display:grid;
+  grid-template-columns: 1.2fr 1.8fr;   /* left a bit wider than before */
+  grid-template-rows: auto 1fr;        /* top row (scores+map), then risk below */
+  grid-template-areas:
+    "scores map"
+    "risk   risk";
+  gap: var(--space-3);
+}
+
+/* Assign areas */
+.panel--scores{ grid-area: scores; }
+.panel--map{    grid-area: map;    }
+.panel--risk{   grid-area: risk;   }
+
+/* Map sizing */
+.panel--map .leaflet-container{
+  height: 500px;         /* make it tall */
+  border-radius: var(--radius);
+  width: 100%;
+}
+
+/* Responsive stack */
+@media (max-width: 900px){
+  .dashboard-grid{
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      "scores"
+      "map"
+      "risk";
+  }
+  .panel--map .leaflet-container{ height: 360px; }
+}
+
+.container{
+  margin: 48px auto;   /* top/bottom + auto left/right */
+  padding: 0 16px;     /* optional inner padding so content doesn’t touch edges */
+}
