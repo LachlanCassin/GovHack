@@ -1,0 +1,172 @@
+# 1. LOAD REQUIRED PACKAGES ---------------------------------------------------
+library(sf)          # Spatial data handling
+library(tidyverse)   # Data manipulation and plotting
+library(terra)       # Raster data (for population grid)
+library(units)       # Handling units (e.g., distance calculations)
+library(readxl)      # For reading Excel files
+
+# Set common CRS for all spatial data (GDA2020 Australian Albers)
+target_crs <- 9473
+
+# 2. IMPORT AND PROCESS SPATIAL DATASETS --------------------------------------
+# Read Australia base map
+aus_sf <- rnaturalearth::ne_countries(country = "australia", scale = "medium", returnclass = "sf") %>%
+  st_transform(crs = target_crs)
+
+# 2.1. SUBSTATIONS
+substations_sf <- st_read("C:/Users/graha/Downloads/Transmission_Substations.csv",
+                         options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  filter(operationalstatus == "Operational", !is.na(voltagekv)) %>%
+  select(name, voltage_kv = voltagekv, state, status = operationalstatus)
+
+# 2.2. POWER STATIONS
+power_stations_sf <- st_read("C:/Users/graha/Downloads/Major_Power_Stations.csv",
+                            options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  select(name, generation_type = generationtype, fuel_type = primaryfueltype, 
+         capacity_mw = generationmw, state)
+
+# 2.3. TRANSMISSION LINES - GEOJSON
+transmission_lines_sf <- st_read("C:/Users/graha/Downloads/Electricity_Transmission_Lines.geojson") %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  select(voltage_kv = capacitykv, length_m = length_m, name, state)
+
+# 2.4. MAJOR ROADS - GEOJSON
+major_roads_sf <- st_read("C:/Users/graha/Downloads/MajorRoads.geojson") %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  select(road_name = full_street_name, 
+         road_type = feature_type, 
+         state = state, 
+         lane_count = lane_count)
+
+# 2.5. RAILWAY STATIONS
+railway_stations_sf <- st_read("C:/Users/graha/Downloads/Railway_Stations.csv",
+                              options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  select(station_name = name, state, status = operationalstatus)
+
+# 2.6. BUSHFIRE DATA - FROM EXCEL FILE
+bushfire_df <- read_excel("C:/Users/graha/Downloads/Fire.xlsx")
+bushfire_sf <- bushfire_df %>%
+  st_as_sf(coords = c("Lon", "Lat"), crs = 4326) %>%
+  st_transform(crs = target_crs) %>%
+  select(site_name = `Site Name`, 
+         avg_ann_cffdi = `Avg Ann CFFDI`, 
+         catastrophic_days = `DPY(>100) "Catastrophic"`)
+
+# 3. IMPORT NON-SPATIAL DATA --------------------------------------------------
+# 3.1. POPULATION DATA (From GeoTIFF)
+pop_raster <- rast("C:/Users/graha/Downloads/GEOTIFF/Australian_Population_Grid_2024.tif") %>%
+  project(paste0("EPSG:", target_crs))
+
+# 3.2. TEMPERATURE DATA (Climate - for cooling requirements)
+temperature_sf <- st_read("C:/Users/graha/Downloads/tas_aus-station.csv",
+                         options = c("X_POSSIBLE_NAMES=LON", "Y_POSSIBLE_NAMES=LAT")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  select(station_name = STATION_NAME, annual_temp = Annual)
+
+# 4. CREATE CANDIDATE SITES GRID ----------------------------------------------
+candidate_sites <- st_make_grid(aus_sf, cellsize = 50000) %>% # 50km grid
+  st_centroid() %>%
+  st_as_sf() %>%
+  st_intersection(aus_sf)
+names(candidate_sites) <- "geometry"
+st_geometry(candidate_sites) <- "geometry"
+
+# 5. CALCULATE SCORING METRICS ------------------------------------------------
+# 5.1. POWER PROXIMITY SCORE (Distance to nearest high-voltage substation)
+high_voltage_substations <- substations_sf %>% filter(voltage_kv >= 132)
+dist_power <- st_distance(candidate_sites, high_voltage_substations)
+candidate_sites$min_dist_power <- apply(dist_power, 1, min)
+candidate_sites$min_dist_power_km <- as.numeric(set_units(candidate_sites$min_dist_power, "km"))
+candidate_sites$power_score <- 1 - (candidate_sites$min_dist_power_km / max(candidate_sites$min_dist_power_km, na.rm = TRUE))
+
+# 5.2. CONNECTIVITY SCORE (Population density + transport access)
+candidate_sites$pop_density <- extract(pop_raster, candidate_sites)[,2]
+candidate_sites$pop_score <- candidate_sites$pop_density / max(candidate_sites$pop_density, na.rm = TRUE)
+
+# Distance to major roads - OPTIMIZED
+candidate_sites$min_dist_road_km <- as.numeric(st_distance(candidate_sites, st_combine(major_roads_sf))) / 1000
+candidate_sites$road_score <- 1 - (candidate_sites$min_dist_road_km / max(candidate_sites$min_dist_road_km, na.rm = TRUE))
+
+# Distance to railway stations - OPTIMIZED
+candidate_sites$min_dist_rail_km <- as.numeric(st_distance(candidate_sites, st_combine(railway_stations_sf))) / 1000
+candidate_sites$rail_score <- 1 - (candidate_sites$min_dist_rail_km / max(candidate_sites$min_dist_rail_km, na.rm = TRUE))
+
+# Distance to transmission lines - OPTIMIZED
+candidate_sites$min_dist_transmission_km <- as.numeric(st_distance(candidate_sites, st_combine(transmission_lines_sf))) / 1000
+candidate_sites$transmission_score <- 1 - (candidate_sites$min_dist_transmission_km / max(candidate_sites$min_dist_transmission_km, na.rm = TRUE))
+
+# Combine connectivity metrics
+candidate_sites$connectivity_score <- (candidate_sites$pop_score + 
+                                       candidate_sites$road_score + 
+                                       candidate_sites$rail_score +
+                                       candidate_sites$transmission_score) / 4
+
+# 5.3. RELIABILITY/SAFETY SCORE (Inverse of risk)
+candidate_sites$min_dist_fire_km <- as.numeric(st_distance(candidate_sites, st_combine(bushfire_sf))) / 1000
+candidate_sites$fire_score <- candidate_sites$min_dist_fire_km / max(candidate_sites$min_dist_fire_km, na.rm = TRUE)
+candidate_sites$safety_score <- candidate_sites$fire_score
+
+# 5.4. COOLING EFFICIENCY SCORE (Cooler temperatures = better)
+nearest_temp <- st_nearest_feature(candidate_sites, temperature_sf)
+candidate_sites$annual_temp <- as.numeric(temperature_sf$annual_temp[nearest_temp])
+candidate_sites$annual_temp[is.na(candidate_sites$annual_temp)] <- mean(candidate_sites$annual_temp, na.rm = TRUE)
+candidate_sites$cooling_score <- 1 - (candidate_sites$annual_temp / max(candidate_sites$annual_temp, na.rm = TRUE))
+
+# 6. CREATE COMPOSITE SCORE ---------------------------------------------------
+candidate_sites$composite_score <- (
+  candidate_sites$power_score * 0.35 +
+  candidate_sites$transmission_score * 0.15 +
+  candidate_sites$connectivity_score * 0.25 +
+  candidate_sites$safety_score * 0.15 +
+  candidate_sites$cooling_score * 0.10
+)
+
+# 7. VISUALIZE RESULTS --------------------------------------------------------
+top_candidates <- candidate_sites %>% 
+  arrange(desc(composite_score)) %>% 
+  head(100)
+
+ggplot() +
+  geom_sf(data = aus_sf, fill = "white", color = "gray50") +
+  geom_sf(data = transmission_lines_sf, color = "orange", size = 0.3, alpha = 0.5) +
+  geom_sf(data = major_roads_sf, color = "darkgreen", size = 0.2, alpha = 0.4) +
+  geom_sf(data = substations_sf, color = "red", size = 1, alpha = 0.7) +
+  geom_sf(data = bushfire_sf, color = "darkred", size = 1, alpha = 0.5, shape = 3) +
+  geom_sf(data = top_candidates, aes(color = composite_score, size = composite_score), alpha = 0.8) +
+  scale_color_viridis_c(option = "plasma", name = "Optimality Score") +
+  scale_size_continuous(range = c(2, 6), guide = "none") +
+  labs(title = "Top 100 Optimal Data Center Locations in Australia",
+       subtitle = "Based on Power Infrastructure, Connectivity, Safety, and Cooling Efficiency",
+       caption = "Red: Substations | Orange: Transmission lines | Green: Major roads | Red +: Bushfire risk") +
+  theme_minimal()
+
+# 8. EXPORT RESULTS -----------------------------------------------------------
+write_sf(candidate_sites, "data_center_candidate_scores.gpkg")
+
+top_locations_summary <- top_candidates %>%
+  st_drop_geometry() %>%
+  select(power_score, transmission_score, connectivity_score, safety_score, cooling_score, composite_score) %>%
+  summary()
+print(top_locations_summary)
+
+# 9. BONUS: TOP 10 LOCATIONS
+top_10_locations <- top_candidates %>%
+  head(10) %>%
+  st_drop_geometry() %>%
+  select(power_score, transmission_score, connectivity_score, safety_score, cooling_score, composite_score) %>%
+  round(3)
+print("Top 10 Optimal Data Center Locations:")
+print(top_10_locations)
+
+# 10. SAVE WORKSPACE
+save.image("data_center_location_analysis.RData")
+print("ANALYSIS COMPLETE! 🎉 Results saved to data_center_candidate_scores.gpkg")
