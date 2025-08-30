@@ -1,0 +1,248 @@
+---
+title: "DataCenters - Diagnostic"
+format: html
+editor: visual
+---
+
+### Setup
+
+\`\`\`
+
+```{r setup, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(sf)
+library(mco)
+```
+
+```{r datat prep}
+AUSGRIDPowerOutages <- read_delim("~/Desktop/GOVHACK/ausgrid-past-outages.csv", delim = ";", show_col_types = FALSE)
+TransmissionSubstations <- read_csv("~/Desktop/GOVHACK/Transmission_Substations.csv", show_col_types = FALSE)
+lga_boundaries_national <- st_read("~/Desktop/GOVHACK/LGA_2025_AUST_GDA2020/LGA_2025_AUST_GDA2020.shp")
+```
+
+```{substations_sf <- TransmissionSubstations %>%}
+  filter(!is.na(Y), !is.na(X)) %>%
+  st_as_sf(coords = c("X", "Y"), crs = 4326) %>%
+  st_transform(crs = 4326)
+
+cities_sf <- tribble(
+  ~city,       ~X,      ~Y,
+  "Sydney",    151.2093, -33.8688,
+  "Melbourne", 144.9631, -37.8136,
+  "Brisbane",  153.0260, -27.4705,
+  "Perth",     115.8570, -31.9535,
+  "Adelaide",  138.6007, -34.9285,
+  "Canberra",  149.1300, -35.2809,
+  "Hobart",    147.3272, -42.8821,
+  "Darwin",    130.8456, -12.4634
+) %>%
+  st_as_sf(coords = c("X", "Y"), crs = 4326) %>%
+  st_transform(crs = 4326)
+
+lga_summary <- AUSGRIDPowerOutages %>%
+  group_by(LGA) %>%
+  summarise(
+    total_customers_affected = sum(`Customers Interrupted`, na.rm = TRUE)
+  )
+
+
+lga_boundaries_cleaned <- lga_boundaries_national %>%
+  select(-all_of(which(names(.) == ""))) %>%
+  rename(LGA_ORIGINAL = LGA_NAME25) %>%
+  mutate(LGA_CLEAN = toupper(LGA_ORIGINAL),
+         LGA_CLEAN = str_replace_all(LGA_CLEAN, " \\(C\\)| \\(A\\)| \\(S\\)| \\(NSW\\)", ""),
+         LGA_CLEAN = str_remove_all(LGA_CLEAN, " CITY| COUNCIL| SHIRE"),
+         LGA_CLEAN = str_trim(LGA_CLEAN) 
+  )
+
+lga_summary_cleaned <- lga_summary %>%
+  mutate(LGA_CLEAN = toupper(LGA),
+         LGA_CLEAN = str_replace_all(LGA_CLEAN, " \\(C\\)| \\(A\\)| \\(S\\)| \\(NSW\\)", ""),
+         LGA_CLEAN = str_remove_all(LGA_CLEAN, " CITY| COUNCIL| SHIRE"),
+         LGA_CLEAN = str_trim(LGA_CLEAN)
+  )
+
+lga_risk_map_sf <- lga_boundaries_cleaned %>%
+  st_transform(crs = 4326) %>%
+  left_join(lga_summary_cleaned, by = "LGA_CLEAN") %>% # Join by the clean name
+  mutate(
+    total_customers_affected = replace_na(total_customers_affected, 0)
+  )
+
+```
+
+```         
+{}
+```
+
+```{r run-optimization}
+cat("--- STARTING OPTIMIZATION ---\n")
+# Define search boundaries for Australia
+AUS_LB <- c(112, -44)
+AUS_UB <- c(154, -10)
+
+# Run the optimization
+optimization_results_aus <- nsga2(
+  fn = my_objective_function_australia,
+  idim = 2,
+  odim = 3,
+  lower.bounds = AUS_LB,
+  upper.bounds = AUS_UB,
+  popsize = 20,
+  generations = 10
+)
+
+# Print a summary of the results
+print("Optimization Complete!")
+summary(optimization_results_aus)
+```
+
+```{r process-and-view-results}
+
+coordinates <- matrix(optimization_results_aus$par, ncol = 2, byrow = TRUE)
+
+# Extract the scores (value) into a 3-column matrix
+scores <- matrix(optimization_results_aus$value, ncol = 3, byrow = TRUE)
+[, 1],
+  lat = coordinates[, 2],
+  infrastructure_score = scores[, 1], # Lower is better (closer to substations)
+  reliability_score = scores[, 2],    # Lower is better (fewer customers affected)
+  connectivity_score = scores[, 3],   # Lower is better (closer to cities)
+  is_optimal = optimization_results_aus$pareto.optimal
+)
+
+# --- Filter for only the truly optimal solutions ---
+# (In this case, it will likely be all of them)
+final_solutions <- results_df %>%
+  filter(is_optimal == TRUE) %>%
+  # Optional: Arrange by one of the scores to see the best trade-offs
+  arrange(reliability_score)
+
+# --- Print the final answer! ---
+print("--- Final Set of Optimal Data Center Locations ---")
+print(final_solutions)
+```
+
+```{r plot-final-results-definitive-control}
+library(ozmaps)
+library(ggplot2)
+
+# --- Step 1: Create a proper SF object from your results ---
+# This ensures your solution points have a clearly defined CRS.
+solutions_sf <- final_solutions %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+
+# --- Step 2: Prepare the base map ---
+# We transform the ozmap data to the same CRS as our points.
+australia_map <- ozmap_country %>%
+  st_transform(crs = 4326)
+
+# --- Step 3: Create the plot with full manual control ---
+ggplot() +
+  # Draw the transformed map layer
+  geom_sf(data = australia_map, fill = "whitesmoke", color = "gray40") +
+  
+  # Draw the solution points layer
+  geom_sf(data = solutions_sf, color = "red", size = 3, shape = 18) +
+  
+  # THE DEFINITIVE FIX:
+  # We manually force the entire plot's coordinate system and limits.
+  # This overrides any defaults and guarantees the correct view.
+  coord_sf(
+    crs = 4326,
+    xlim = c(112, 154),  # Forcing Longitude limits for Australia
+    ylim = c(-44, -10),  # Forcing Latitude limits for Australia
+    expand = FALSE     # Prevents ggplot from adding extra padding
+  ) +
+  
+  labs(
+    title = "Pareto Optimal Locations for New Data Centers",
+    subtitle = "Each point represents a best-compromise solution",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal() +
+  theme(panel.background = element_rect(fill = "aliceblue")) # A light blue background for the "ocean"
+```
+
+```{r inspect-the-raw-output}
+cat("--- 1. SUMMARY OF THE RAW NSGA2 OUTPUT ---\n")
+# This tells us if the algorithm thinks it found solutions.
+print(summary(optimization_results_aus))
+cat("\n")
+
+cat("--- 2. THE RAW COORDINATES VECTOR ('par') ---\n")
+# THIS IS THE MOST IMPORTANT CHECK.
+# This should be a long list of numbers. If it is NULL, empty, or all NAs,
+# then the optimization failed to find any valid locations.
+print(optimization_results_aus$par)
+cat("\n")
+
+cat("--- 3. THE DATA FRAME AFTER RESHAPING ---\n")
+# This checks if our code to turn the vector into a table is working.
+# This is the step right before we create 'final_solutions'.
+# If the 'lon' and 'lat' columns here are empty or NA, this is the problem.
+
+# We will put the reshaping code inside a 'try' block to prevent errors
+# if the raw data is bad.
+try({
+  coordinates <- matrix(optimization_results_aus$par, ncol = 2, byrow = TRUE)
+  scores <- matrix(optimization_results_aus$value, ncol = 3, byrow = TRUE)
+  results_df <- tibble(
+    lon = coordinates[, 1],
+    lat = coordinates[, 2],
+    score1 = scores[, 1],
+    score2 = scores[, 2],
+    score3 = scores[, 3]
+  )
+  print(head(results_df))
+}, silent = TRUE)
+cat("--------------------------------------------\n")
+```
+
+```{r enrich-and-display-results}
+library(knitr) # For creating beautiful tables
+
+# --- Use the solutions_sf object we created for the plot ---
+# It's our master results table now.
+
+# --- 1. Add Location Information: Which State/Territory? ---
+# Get the states map and ensure it has the same CRS
+australian_states <- ozmap("states") %>%
+  st_transform(crs = 4326)
+
+# Perform a spatial join to find which state each point is in
+enriched_solutions <- solutions_sf %>%
+  st_join(australian_states, join = st_intersects) %>%
+  # Rename the state column for clarity
+  rename(State = NAME)
+
+# --- 2. Add Proximity Information: What's the Nearest Major City? ---
+# Find the index of the nearest city for each solution
+nearest_city_index <- st_nearest_feature(enriched_solutions, cities_sf)
+# Use that index to get the city names
+enriched_solutions$Nearest_Hub <- cities_sf$city[nearest_city_index]
+
+# --- 3. Create 0-100 Ratings (where 100 is BEST) ---
+final_ranked_solutions <- enriched_solutions %>%
+  mutate(
+    # For cost-like scores (lower is better), we normalize and invert
+    Infrastructure_Rating = 100 * (1 - (infrastructure_score - min(infrastructure_score)) / (max(infrastructure_score) - min(infrastructure_score))),
+    Reliability_Rating = 100 * (1 - (reliability_score - min(reliability_score)) / (max(reliability_score) - min(reliability_score))),
+    Connectivity_Rating = 100 * (1 - (connectivity_score - min(connectivity_score)) / (max(connectivity_score) - min(connectivity_score))),
+    
+    # --- 4. Create an Overall Score ---
+    # We can use a simple weighted average. Here, all objectives have equal weight.
+    Overall_Score = (Infrastructure_Rating * 0.33) + (Reliability_Rating * 0.34) + (Connectivity_Rating * 0.33)
+  ) %>%
+  # Select and arrange the final columns for a clean report
+  select(Overall_Score, State, Nearest_Hub, Infrastructure_Rating, Reliability_Rating, Connectivity_Rating, X, Y) %>%
+  arrange(desc(Overall_Score)) %>%
+  # Round the scores for readability
+  mutate(across(where(is.numeric), round, 1))
+
+# --- Display the final, user-friendly table ---
+print("--- Final Ranked Report of Optimal Locations ---")
+kable(final_ranked_solutions, caption = "Optimal Data Center Locations with Location and Scored Ratings")
+```
