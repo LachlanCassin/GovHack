@@ -14,12 +14,12 @@ aus_sf <- rnaturalearth::ne_countries(country = "australia", scale = "medium", r
   st_transform(crs = target_crs)
 
 # 2.1. LOAD LGA DATA - Using GeoJSON
-lga_sf <- st_read("~/GovHack/dataframe"/lga.geojson") %>%
+lga_sf <- st_read("~/GovHack/dataframe/lga.geojson") %>%
   st_transform(crs = target_crs) %>%
   filter(!st_is_empty(geometry))
 
 # 2.2. SUBSTATIONS
-substations_sf <- st_read("~/GovHack/dataframe"/Transmission_Substations.csv",
+substations_sf <- st_read("~/GovHack/dataframe/Transmission_Substations.csv",
                          options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
   st_set_crs(4326) %>%
   st_transform(crs = target_crs) %>%
@@ -27,7 +27,7 @@ substations_sf <- st_read("~/GovHack/dataframe"/Transmission_Substations.csv",
   select(name, voltage_kv = voltagekv, state, status = operationalstatus)
 
 # 2.3. POWER STATIONS
-power_stations_sf <- st_read("~/GovHack/dataframe"/Major_Power_Stations.csv",
+power_stations_sf <- st_read("~/GovHack/dataframe/Major_Power_Stations.csv",
                             options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
   st_set_crs(4326) %>%
   st_transform(crs = target_crs) %>%
@@ -35,13 +35,13 @@ power_stations_sf <- st_read("~/GovHack/dataframe"/Major_Power_Stations.csv",
          capacity_mw = generationmw, state)
 
 # 2.4. TRANSMISSION LINES - GEOJSON
-transmission_lines_sf <- st_read("~/GovHack/dataframe"/Electricity_Transmission_Lines.geojson") %>%
+transmission_lines_sf <- st_read("~/GovHack/dataframe/Electricity_Transmission_Lines.geojson") %>%
   st_set_crs(4326) %>%
   st_transform(crs = target_crs) %>%
   select(voltage_kv = capacitykv, length_m = length_m, name, state)
 
 # 2.5. MAJOR ROADS - GEOJSON
-major_roads_sf <- st_read("~/GovHack/dataframe"/MajorRoads.geojson") %>%
+major_roads_sf <- st_read("~/GovHack/dataframe/MajorRoads.geojson") %>%
   st_set_crs(4326) %>%
   st_transform(crs = target_crs) %>%
   select(road_name = full_street_name, 
@@ -50,14 +50,14 @@ major_roads_sf <- st_read("~/GovHack/dataframe"/MajorRoads.geojson") %>%
          lane_count = lane_count)
 
 # 2.6. RAILWAY STATIONS
-railway_stations_sf <- st_read("~/GovHack/dataframe"/Railway_Stations.csv",
+railway_stations_sf <- st_read("~/GovHack/dataframe/Railway_Stations.csv",
                               options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
   st_set_crs(4326) %>%
   st_transform(crs = target_crs) %>%
   select(station_name = name, state, status = operationalstatus)
 
 # 2.7. BUSHFIRE DATA - FROM EXCEL FILE
-bushfire_sf <- read_excel("~/GovHack/dataframe"/Fire.xlsx") %>%
+bushfire_sf <- read_excel("~/GovHack/dataframe/Fire.xlsx") %>%
   st_as_sf(coords = c("Lon", "Lat"), crs = 4326) %>%
   st_transform(crs = target_crs) %>%
   select(site_name = `Site Name`, 
@@ -65,7 +65,7 @@ bushfire_sf <- read_excel("~/GovHack/dataframe"/Fire.xlsx") %>%
          catastrophic_days = `DPY(>100) "Catastrophic"`)
 
 # 2.8. CYCLONE PATHS - Handle missing coordinates
-cyclone_sf <- read_csv("~/GovHack/dataframe"/TropicalCyclonePaths.csv",
+cyclone_sf <- read_csv("~/GovHack/dataframe/TropicalCyclonePaths.csv",
                       show_col_types = FALSE) %>%
   filter(!is.na(LON), !is.na(LAT)) %>%
   st_as_sf(coords = c("LON", "LAT"), crs = 4326) %>%
@@ -83,17 +83,17 @@ cyclone_sf <- read_csv("~/GovHack/dataframe"/TropicalCyclonePaths.csv",
   )
 
 # 2.9. ELECTRICITY OUTAGES
-outages_df <- read_csv("~/GovHack/dataframe"/Reliable_Energy.csv") %>%
+outages_df <- read_csv("~/GovHack/dataframe/Reliable_Energy.csv") %>%
   select(lga = LGA, customers_interrupted = `Customers Interrupted`, 
          avg_duration_min = `Ave Dur. (min)`, reason = Reason)
 
 # 3. IMPORT NON-SPATIAL DATA --------------------------------------------------
 # 3.1. POPULATION DATA (From GeoTIFF)
-pop_raster <- rast("~/GovHack/dataframe"/GEOTIFF/Australian_Population_Grid_2024.tif") %>%
+pop_raster <- rast("~/GovHack/dataframe/GEOTIFF/Australian_Population_Grid_2024.tif") %>%
   project(paste0("EPSG:", target_crs))
 
 # 3.2. TEMPERATURE DATA
-temperature_sf <- st_read("~/GovHack/dataframe"/tas_aus-station.csv",
+temperature_sf <- st_read("~/GovHack/dataframe/tas_aus-station.csv",
                          options = c("X_POSSIBLE_NAMES=LON", "Y_POSSIBLE_NAMES=LAT")) %>%
   st_set_crs(4326) %>%
   st_transform(crs = target_crs) %>%
