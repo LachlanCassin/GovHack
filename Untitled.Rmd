@@ -295,8 +295,12 @@ lga_centroids[numeric_cols] <- lapply(lga_centroids[numeric_cols], function(x) {
   })
 })
 
-# Now rowMeans works
-lga_centroids$composite_score <- rowMeans(lga_centroids[, numeric_cols], na.rm = TRUE)
+# Now rowMeans 
+lga_centroids$composite_score <- lga_centroids %>%
+  st_drop_geometry() %>%
+  dplyr::select(all_of(numeric_cols)) %>%
+  as.matrix() %>%
+  rowMeans(na.rm = TRUE)
 
 
 lga_centroids <- lga_centroids %>%
