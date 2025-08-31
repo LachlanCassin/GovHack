@@ -7,6 +7,8 @@ library(dplyr)
 library(readr)
 library(viridis)
 library(sf)
+library(shinylive)
+library(httpuv)
 
 # ---- LOAD DATA ----
 # Load your GeoJSON file

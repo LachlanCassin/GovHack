@@ -1,0 +1,12 @@
+name: govhackweb
+title: GovHackWeb
+username: grahamkong972
+account: grahamkong972
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15311819
+bundleId: 10841457
+url: https://grahamkong972.shinyapps.io/govhackweb/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
