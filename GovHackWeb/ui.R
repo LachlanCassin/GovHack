@@ -1,3 +1,13 @@
+library(shiny)
+library(shinythemes)   # ⬅️ must be here
+library(leaflet)
+library(plotly)
+library(DT)
+library(dplyr)
+library(readr)
+library(viridis)
+library(sf)
+
 shinyUI(
   fluidPage(
     theme = shinytheme("cerulean"),
@@ -215,84 +225,99 @@ shinyUI(
                    )
                )
       ),
-      # Team Members Tab
+      
+      # --- TEAM MEMBERS TAB ---
       tabPanel("Team Members",
                tags$style(HTML("
-           .team-container {
-             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-             padding: 30px;
-             border-radius: 20px;
-             margin: 20px 0;
-           }
-           .team-header {
-             background: rgba(255, 255, 255, 0.95);
-             padding: 30px;
-             border-radius: 15px;
-             box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-             margin-bottom: 25px;
-           }
-           .team-card {
-             background: rgba(255, 255, 255, 0.95);
-             padding: 25px;
-             border-radius: 12px;
-             box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-             margin-bottom: 20px;
-             border-left: 4px solid #667eea;
-             transition: transform 0.3s ease, box-shadow 0.3s ease;
-           }
-           .team-card:hover {
-             transform: translateY(-5px);
-             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-           }
-           .team-name {
-             color: #2c3e50;
-             font-weight: 600;
-             font-size: 18px;
-             margin-bottom: 5px;
-           }
-           .team-role {
-             color: #667eea;
-             font-weight: 500;
-             margin-bottom: 10px;
-           }
-           .team-contact {
-             color: #6c757d;
-             font-size: 14px;
-           }
-         ")),
+    .team-container {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 30px;
+      border-radius: 20px;
+      margin: 20px 0;
+    }
+    .team-header {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      margin-bottom: 25px;
+      text-align: center;
+    }
+    .team-card {
+      background: #ffffff;
+      border-radius: 15px;
+      padding: 25px;
+      text-align: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      margin: 15px 0;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .team-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+    }
+    .team-photo {
+      width: 120px;
+      height: 120px;
+      object-fit: cover;
+      border-radius: 50%;
+      margin-bottom: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    }
+    .team-name {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      color: #2c3e50;
+    }
+    .team-role {
+      font-weight: bold;
+      color: #007bff;
+      margin-bottom: 10px;
+    }
+    .team-desc {
+      color: #6c757d;
+      font-size: 14px;
+    }
+  ")),
                
                div(class = "team-container",
                    div(class = "team-header",
                        h1("Our Team", class = "main-title"),
-                       p("Meet the experts behind the data center location analysis", class = "subtitle")
+                       p("Meet the people behind the project", class = "subtitle")
                    ),
                    
                    fluidRow(
                      column(4,
                             div(class = "team-card",
-                                h4("Data Scientist", class = "team-role"),
-                                p("Ryan Ng", class = "team-name"),
-                                p("Found and processed data sets, created R scripts", style = "color: #6c757d;"),
+                                img(src = "Cassin.jpg", class = "team-photo"),
+                                div("Lachlan Cassin", class = "team-name"),
+                                div("Shiny App Developer", class = "team-role"),
+                                p("Developed Shiny app and integrated data into the web interface", class = "team-desc")
                             )
                      ),
                      column(4,
                             div(class = "team-card",
-                                h4("Shiny App Developer", class = "team-role"),
-                                p("Lachlan Cassin", class = "team-name"),
-                                p("Developed Shiny app and integrated data into the web interface", style = "color: #6c757d;"),
+                                img(src = "Ryan.png", class = "team-photo"),
+                                div("Ryan Ng", class = "team-name"),
+                                div("Data Analyst", class = "team-role"),
+                                p("Conducted data analysis and visualisation, ensuring data accuracy and meaningful insights", class = "team-desc")
                             )
                      ),
                      column(4,
                             div(class = "team-card",
-                                h4("Data Analyst", class = "team-role"),
-                                p("Graham Kong", class = "team-name"),
-                                p("Found data sets and created R scripts for analysis", style = "color: #6c757d;"),
+                                img(src = "Graham.png", class = "team-photo"),
+                                div("Graham Kong", class = "team-name"),
+                                div("Data Analyst", class = "team-role"),
+                                p("Contributed to data analysis and visualisation, supporting insight generation and presentation", class = "team-desc")
                             )
                      )
                    )
                )
       ),
-      # Replace your current Methodology tab with this code
+      
+      
+      # Methodology Tab - Enhanced Style
       tabPanel("Methodology",
                tags$style(HTML("
     .methodology-container {
@@ -305,130 +330,143 @@ shinyUI(
       background: rgba(255, 255, 255, 0.95);
       padding: 30px;
       border-radius: 15px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      box-shadow: 0 12px 35px rgba(0,0,0,0.15);
       margin-bottom: 25px;
+      text-align: center;
+    }
+    .main-title { color: #2c3e50; font-weight: 700; font-size: 32px; margin-bottom: 10px; }
+    .subtitle { color: #6c757d; font-size: 16px; margin-bottom: 0px; }
+    
+    .methodology-content {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .methodology-section {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 15px;
+      padding: 25px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+      border-left: 5px solid #3498db;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .methodology-section:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 35px rgba(0,0,0,0.2);
+    }
+    .section-title {
+      color: #2c3e50;
+      font-weight: 600;
+      font-size: 22px;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 8px;
+    }
+    .section-desc {
+      color: #6c757d;
+      font-size: 17px;
+      margin-bottom: 10px;
+    }
+    .section-list {
+      margin-left: 20px;
+      margin-bottom: 17px;
+      color: #6c757d;
     }
     .code-section {
       background: #2d2d2d;
-      border-radius: 10px;
-      padding: 25px;
-      margin: 20px 0;
+      border-radius: 12px;
+      padding: 20px;
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
       color: #f8f9fa;
       overflow-x: auto;
-    }
-    .methodology-content {
-      background: rgba(255, 255, 255, 0.95);
-      border-radius: 15px;
-      padding: 30px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.15);
     }
   ")),
                
                div(class = "methodology-container",
                    div(class = "methodology-header",
                        h1("Our Methodology", class = "main-title"),
-                       p("Detailed explanation of our data processing and analysis approach", class = "subtitle")
+                       p("Step-by-step explanation of the LGA Data Center Location Analysis workflow", class = "subtitle")
                    ),
                    
                    div(class = "methodology-content",
-                       h3("Analytical Approach", style = "color: #2c3e50; margin-bottom: 20px;"),
-                       p("Our methodology combined Principal Component Analysis (PCA) with a weighted scoring system to identify optimal data center locations:", 
-                         style = "color: #6c757d; margin-bottom: 15px;"),
                        
-                       h4("Principal Component Analysis", style = "color: #2c3e50; margin-top: 25px;"),
-                       p("We performed PCA to reduce dimensionality and identify the most influential factors:", 
-                         style = "color: #6c757d; margin-bottom: 10px;"),
-                       tags$ul(
-                         tags$li("Standardized all variables to mean = 0, variance = 1"),
-                         tags$li("Identified PC1 as explaining the highest proportion of variance"),
-                         tags$li("Used PC1 loadings to determine variable importance"),
-                         tags$li("Created PC1 scores for each LGA as a data-driven suitability metric")
+                       div(class = "methodology-section",
+                           h3("1. Data Collection & Preparation", class = "section-title"),
+                           p("We gather spatial and non-spatial datasets for infrastructure, population, environment, and reliability.", class = "section-desc"),
+                           tags$ul(class = "section-list",
+                                   tags$li("Australian LGA boundaries (GeoJSON)"),
+                                   tags$li("Transmission substations & electricity transmission lines"),
+                                   tags$li("Major power stations"),
+                                   tags$li("Railway stations for connectivity"),
+                                   tags$li("Environmental risk datasets: bushfires and cyclone paths"),
+                                   tags$li("Population density raster (GeoTIFF)"),
+                                   tags$li("Temperature stations for cooling analysis"),
+                                   tags$li("Electricity outage records for reliability assessment")
+                           )
                        ),
                        
-                       h4("Composite Weighting System", style = "color: #2c3e50; margin-top: 25px;"),
-                       p("Based on PCA results and domain knowledge, we developed a weighted scoring system:", 
-                         style = "color: #6c757d; margin-bottom: 10px;"),
-                       tags$ul(
-                         tags$li("Power Infrastructure (35%): Distance to substations, power stations, and transmission lines"),
-                         tags$li("Population & Connectivity (25%): Population density and railway access"),
-                         tags$li("Environmental Risk (15%): Bushfire and cyclone risks"),
-                         tags$li("Cooling Efficiency (15%): Annual temperature patterns"),
-                         tags$li("Reliability (10%): Electricity outage history")
+                       div(class = "methodology-section",
+                           h3("2. Spatial Transformations", class = "section-title"),
+                           p("All spatial layers are transformed to a common CRS (GDA2020 / Australian Albers) and empty geometries removed for consistency.", class = "section-desc")
                        ),
                        
-                       h4("Data Integration", style = "color: #2c3e50; margin-top: 25px;"),
-                       p("We combined multiple data sources and performed spatial analysis:", 
-                         style = "color: #6c757d; margin-bottom: 10px;"),
-                       tags$ul(
-                         tags$li("Geospatial processing of LGA boundaries"),
-                         tags$li("Point-in-polygon analysis for infrastructure features"),
-                         tags$li("Normalization of all scores to a 0-100 scale"),
-                         tags$li("Calculation of final composite scores for ranking")
+                       div(class = "methodology-section",
+                           h3("3. Centroid & Distance Calculations", class = "section-title"),
+                           p("We calculate distances from each LGA centroid to infrastructure and risk points for scoring.", class = "section-desc"),
+                           tags$ul(class = "section-list",
+                                   tags$li("High-voltage substations"),
+                                   tags$li("Major power stations"),
+                                   tags$li("Transmission lines"),
+                                   tags$li("Nearest railway station"),
+                                   tags$li("Bushfire sites"),
+                                   tags$li("Cyclone paths weighted by intensity")
+                           )
                        ),
                        
-                       h3("Data Processing Code", style = "color: #2c3e50; margin-top: 30px; margin-bottom: 20px;"),
-                       div(class = "code-section",
-                           verbatimTextOutput("dataProcessingCode")
-                       )
-                   )
-               )
-      )
-      # Methodology Tab
-      tabPanel("Methodology",
-               tags$style(HTML("
-                 .methodology-container {
-                   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                   padding: 30px;
-                   border-radius: 20px;
-                   margin: 20px 0;
-                 }
-                 .methodology-header {
-                   background: rgba(255, 255, 255, 0.95);
-                   padding: 30px;
-                   border-radius: 15px;
-                   box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                   margin-bottom: 25px;
-                 }
-                 .code-section {
-                   background: #2d2d2d;
-                   border-radius: 10px;
-                   padding: 25px;
-                   margin: 20px 0;
-                   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                   color: #f8f9fa;
-                   overflow-x: auto;
-                 }
-                 .methodology-content {
-                   background: rgba(255, 255, 255, 0.95);
-                   border-radius: 15px;
-                   padding: 30px;
-                   box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-                 }
-               ")),
-               
-               div(class = "methodology-container",
-                   div(class = "methodology-header",
-                       h1("Our Methodology", class = "main-title"),
-                       p("Detailed explanation of our data processing and analysis approach", class = "subtitle")
-                   ),
-                   
-                   div(class = "methodology-content",
-                       h3("Data Processing Code", style = "color: #2c3e50; margin-bottom: 20px;"),
-                       div(class = "code-section",
-                           verbatimTextOutput("dataProcessingCode")
+                       div(class = "methodology-section",
+                           h3("4. Population & Temperature Metrics", class = "section-title"),
+                           p("Population density is extracted from a high-resolution raster. Cooling efficiency is calculated from nearest temperature station.", class = "section-desc")
                        ),
                        
-                       h3("Weighted Scoring Methodology", style = "color: #2c3e50; margin-top: 30px;"),
-                       p("Our composite score combines multiple factors with the following weights:", 
-                         style = "color: #6c757d; margin-bottom: 15px;"),
-                       tags$ul(
-                         tags$li("Power Infrastructure (35%): Distance to substations, power stations, and transmission lines"),
-                         tags$li("Population & Connectivity (25%): Population density and railway access"),
-                         tags$li("Environmental Risk (15%): Bushfire and cyclone risks"),
-                         tags$li("Cooling Efficiency (15%): Annual temperature patterns"),
-                         tags$li("Reliability (10%): Electricity outage history")
-                       )
+                       div(class = "methodology-section",
+                           h3("5. Reliability Metrics", class = "section-title"),
+                           p("Historical electricity outages per LGA are summarized to assess reliability; fewer outages yield higher reliability scores.", class = "section-desc")
+                       ),
+                       
+                       div(class = "methodology-section",
+                           h3("6. Score Normalization", class = "section-title"),
+                           p("Metrics are normalized 0-1. For metrics where lower values are better (distance, risks, outages), scores are inverted.", class = "section-desc")
+                       ),
+                       
+                       div(class = "methodology-section",
+                           h3("7. Composite Scoring", class = "section-title"),
+                           p("Weighted combination of scores to generate overall suitability for data centers:", class = "section-desc"),
+                           tags$ul(class = "section-list",
+                                   tags$li("Power Infrastructure (35%) - average of power, substation, transmission scores"),
+                                   tags$li("Population & Connectivity (25%) - average of population and rail proximity scores"),
+                                   tags$li("Environmental Risk (15%) - average of fire and cyclone risk scores"),
+                                   tags$li("Cooling Efficiency (15%) - temperature-based score"),
+                                   tags$li("Reliability (10%) - electricity outage score")
+                           )
+                       ),
+                       
+                       div(class = "methodology-section",
+                           h3("8. Principal Component Analysis (PCA)", class = "section-title"),
+                           p("PCA is applied to all numerical metrics to identify dominant variance patterns. PC1 score provides an additional suitability metric.", class = "section-desc")
+                       ),
+                       
+                       div(class = "methodology-section",
+                           h3("9. Output & Visualization", class = "section-title"),
+                           p("Processed data is exported (CSV, RDS, GeoPackage) and visualized with interactive maps, top-20 plots, and score histograms.", class = "section-desc")
+                       ),
+                       
+                       div(class = "methodology-section",
+                           h3("10. Reproducibility", class = "section-title"),
+                           p("All scripts, datasets, and outputs are versioned and stored to ensure analysis can be fully reproduced.", class = "section-desc")
+                       ),
+                       
+                       
                    )
                )
       )

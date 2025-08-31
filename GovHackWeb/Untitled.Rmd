@@ -1,0 +1,397 @@
+---
+title: "LGA Data Center Location Analysis"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r settup}
+library(sf)          # Spatial data handling
+library(tidyverse)
+library(tidyr)
+library(terra)       # Raster data (for population grid)
+library(units)       # Handling units (e.g., distance calculations)
+library(readxl)      # For reading Excel files
+library(dplyr)
+# Set common CRS for all spatial data (GDA2020 Australian Albers)
+target_crs <- 9473
+```
+
+```{r import and processing data}
+aus_sf <- rnaturalearth::ne_countries(country = "australia", scale = "medium", returnclass = "sf") %>%
+  st_transform(crs = target_crs)
+
+lga_sf <- st_read("./dataframe/lga.geojson") %>%
+  st_transform(crs = target_crs) %>%
+  filter(!st_is_empty(geometry))
+
+substations_sf <- st_read("./dataframe/Transmission_Substations.csv",
+                         options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::filter(operationalstatus == "Operational", !is.na(voltagekv)) %>%
+  dplyr::select(name, voltage_kv = voltagekv, state, status = operationalstatus)
+
+power_stations_sf <- st_read("./dataframe/Major_Power_Stations.csv",
+                            options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::select(name, generation_type = generationtype, fuel_type = primaryfueltype, 
+         capacity_mw = generationmw, state)
+
+transmission_lines_sf <- st_read("./dataframe/Electricity_Transmission_Lines.geojson") %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::select(voltage_kv = capacitykv, length_m = length_m, name, state)
+
+railway_stations_sf <- st_read("./dataframe/Railway_Stations.csv",
+                              options = c("X_POSSIBLE_NAMES=X", "Y_POSSIBLE_NAMES=Y")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::select(station_name = name, state, status = operationalstatus)
+
+# 2.7. BUSHFIRE DATA - FROM EXCEL FILE
+bushfire_sf <- read_csv("./dataframe/Fire.csv") %>%
+  st_as_sf(coords = c("Lon", "Lat"), crs = 4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::select(site_name = `Site Name`, 
+         avg_ann_cffdi = `Avg Ann CFFDI`, 
+         catastrophic_days = `DPY(>100) "Catastrophic"`)
+
+# 2.8. CYCLONE PATHS - Handle missing coordinates
+cyclone_sf <- read_csv("./dataframe/TropicalCyclonePaths.csv",
+                      show_col_types = FALSE) %>%
+  filter(!is.na(LON), !is.na(LAT)) %>%
+  st_as_sf(coords = c("LON", "LAT"), crs = 4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::select(name = NAME, disturbance_id = DISTURBANCE_ID, type = TYPE, 
+         surface_code = SURFACE_CODE, cyc_type = CYC_TYPE) %>%
+  mutate(
+    cyclone_intensity = case_when(
+      surface_code %in% c(4, 5) ~ 1.0,
+      surface_code %in% c(3) ~ 0.7,
+      surface_code %in% c(2) ~ 0.4,
+      surface_code %in% c(1) ~ 0.1,
+      TRUE ~ 0.1
+    )
+  )
+
+# 2.9. ELECTRICITY OUTAGES
+outages_df <- read_csv("./dataframe/Reliable_Energy.csv") %>%
+  dplyr::select(lga = LGA, customers_interrupted = `Customers Interrupted`, 
+         avg_duration_min = `Ave Dur. (min)`, reason = Reason)
+
+
+```
+
+```{r import non-spatial data}
+
+pop_raster <- rast("./dataframe/GEOTIFF/Australian_Population_Grid_2024.tif") %>%
+  project(paste0("EPSG:", target_crs))
+
+temperature_sf <- st_read("./dataframe/tas_aus-station.csv",
+                         options = c("X_POSSIBLE_NAMES=LON", "Y_POSSIBLE_NAMES=LAT")) %>%
+  st_set_crs(4326) %>%
+  st_transform(crs = target_crs) %>%
+  dplyr::select(station_name = STATION_NAME, annual_temp = Annual)
+
+
+```
+
+
+```{r analysis }
+
+# 4. CALCULATE LGA-CENTROIDS FOR ANALYSIS -------------------------------------
+lga_centroids <- lga_sf %>%
+  st_centroid() %>%
+  mutate(
+    lga_code = as.character(lga_code),
+    lga_name = as.character(lga_name),
+    state = as.character(ste_name)
+  ) %>%
+  dplyr::select(lga_code, lga_name, state, geometry)
+
+high_voltage_substations <- substations_sf %>% filter(voltage_kv >= 132)
+
+lga_centroids$min_dist_power_km <- as.numeric(st_distance(
+  lga_centroids, 
+  st_combine(high_voltage_substations)
+)) / 1000
+
+lga_centroids$min_dist_power_station_km <- as.numeric(st_distance(
+  lga_centroids,
+  st_combine(power_stations_sf)
+)) / 1000
+
+lga_centroids$min_dist_transmission_km <- as.numeric(st_distance(
+  lga_centroids,
+  st_combine(transmission_lines_sf)
+)) / 1000
+
+# 5.2. CONNECTIVITY METRICS
+lga_pop <- extract(pop_raster, lga_sf, fun = mean, na.rm = TRUE)
+lga_centroids$pop_density <- lga_pop[,2]
+
+lga_centroids$min_dist_rail_km <- as.numeric(st_distance(
+  lga_centroids,
+  st_combine(railway_stations_sf)
+)) / 1000
+
+# 5.3. ENVIRONMENTAL RISK METRICS
+lga_centroids$min_dist_fire_km <- as.numeric(st_distance(
+  lga_centroids,
+  st_combine(bushfire_sf)
+)) / 1000
+
+# Cyclone risk calculation function
+calculate_weighted_cyclone_risk <- function(points, cyclone_data) {
+  distances <- st_distance(points, cyclone_data)
+  min_dist <- apply(distances, 1, min)
+  nearest_idx <- apply(distances, 1, which.min)
+  nearest_intensity <- cyclone_data$cyclone_intensity[nearest_idx]
+  risk_score <- (1 / (as.numeric(min_dist) / 1000 + 1)) * nearest_intensity
+  return(risk_score)
+}
+
+lga_centroids$cyclone_risk <- calculate_weighted_cyclone_risk(lga_centroids, cyclone_sf)
+lga_centroids$min_dist_cyclone_km <- as.numeric(st_distance(lga_centroids, st_combine(cyclone_sf))) / 1000
+
+# 5.4. TEMPERATURE
+nearest_temp <- st_nearest_feature(lga_centroids, temperature_sf)
+lga_centroids$annual_temp <- as.numeric(temperature_sf$annual_temp[nearest_temp])
+
+# 5.5. ELECTRICITY RELIABILITY
+outages_df$lga_clean <- toupper(trimws(outages_df$lga))
+lga_centroids$lga_name_clean <- toupper(trimws(lga_centroids$lga_name))
+
+outage_summary <- outages_df %>%
+  group_by(lga_clean) %>%
+  summarise(
+    total_outages = n(),
+    avg_customers_affected = mean(customers_interrupted, na.rm = TRUE),
+    avg_duration_min = mean(avg_duration_min, na.rm = TRUE)
+  )
+
+lga_centroids <- lga_centroids %>%
+  left_join(outage_summary, by = c("lga_name_clean" = "lga_clean")) %>%
+  mutate(
+    total_outages = ifelse(is.na(total_outages), 0, total_outages),
+    avg_customers_affected = ifelse(is.na(avg_customers_affected), 0, avg_customers_affected),
+    avg_duration_min = ifelse(is.na(avg_duration_min), 0, avg_duration_min)
+  )
+
+normalize_score <- function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+lga_centroids$power_score <- 1 - normalize_score(lga_centroids$min_dist_power_km)
+lga_centroids$power_station_score <- 1 - normalize_score(lga_centroids$min_dist_power_station_km)
+lga_centroids$transmission_score <- 1 - normalize_score(lga_centroids$min_dist_transmission_km)
+
+lga_centroids$pop_score <- normalize_score(lga_centroids$pop_density)
+lga_centroids$rail_score <- 1 - normalize_score(lga_centroids$min_dist_rail_km)
+
+lga_centroids$fire_risk_score <- 1 - normalize_score(lga_centroids$min_dist_fire_km)
+lga_centroids$cyclone_risk_score <- 1 - normalize_score(lga_centroids$cyclone_risk)
+
+lga_centroids$cooling_score <- 1 - normalize_score(lga_centroids$annual_temp)
+lga_centroids$reliability_score <- 1 - normalize_score(lga_centroids$total_outages)
+
+lga_centroids$composite_score <- (
+  (lga_centroids$power_score + lga_centroids$power_station_score + lga_centroids$transmission_score) / 3 * 0.35 +
+  (lga_centroids$pop_score + lga_centroids$rail_score) / 2 * 0.25 +
+  (lga_centroids$fire_risk_score + lga_centroids$cyclone_risk_score) / 2 * 0.15 +
+  lga_centroids$cooling_score * 0.15 +
+  lga_centroids$reliability_score * 0.10
+)
+
+```
+```{r PCA analysis}
+pca_data <- lga_centroids %>%
+  st_drop_geometry() %>%
+  dplyr::select(
+    min_dist_power_km, min_dist_power_station_km, min_dist_transmission_km,
+    pop_density, min_dist_rail_km,
+    min_dist_fire_km, cyclone_risk,
+    annual_temp, total_outages
+  ) %>%
+  na.omit()
+
+pca_data_scaled <- scale(pca_data)
+pca_result <- prcomp(pca_data_scaled, center = TRUE, scale. = TRUE)
+pca_scores <- as.data.frame(pca_result$x)
+lga_centroids$pca_score <- pca_scores$PC1[match(rownames(pca_data), rownames(lga_centroids))]
+
+top_lgas <- lga_centroids %>% 
+  arrange(desc(composite_score)) %>% 
+  head(20)
+```
+
+```{r preparing PCA-based rankings}
+
+pca_scores <- as.data.frame(pca_result$x)
+lga_centroids$PC1_score <- pca_scores$PC1[match(rownames(pca_scores), rownames(lga_centroids))]
+
+
+lga_centroids <- lga_centroids %>%
+  dplyr::arrange(desc(PC1_score)) %>%
+  dplyr::mutate(PC1_rank = row_number())
+
+top10_PC1 <- lga_centroids %>%
+  dplyr::slice(1:10) %>%
+  dplyr::select(lga_name, state, PC1_score, PC1_rank)
+
+top10_PC1
+
+```
+
+```{r index rankings}
+# Example: normalize each variable (min-max)
+normalize <- function(x, better_high = TRUE) {
+  x <- as.numeric(x)
+  if (better_high) {
+    (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+  } else {
+    # lower is better
+    1 - (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+  }
+}
+
+# Apply normalization according to “better” direction
+lga_centroids <- lga_centroids %>%
+  dplyr::mutate(
+    power_score = normalize(min_dist_power_km, better_high = FALSE),
+    power_station_score = normalize(min_dist_power_station_km, better_high = FALSE),
+    transmission_score = normalize(min_dist_transmission_km, better_high = FALSE),
+    pop_score = normalize(pop_density, better_high = TRUE),
+    rail_score = normalize(min_dist_rail_km, better_high = FALSE),
+    fire_risk_score = normalize(min_dist_fire_km, better_high = FALSE),
+    cyclone_risk_score = normalize(cyclone_risk, better_high = FALSE),
+    cooling_score = normalize(annual_temp, better_high = FALSE),
+    reliability_score = normalize(total_outages, better_high = FALSE)
+  )
+
+library(units)
+
+numeric_cols <- c("power_score","power_station_score","transmission_score",
+                  "pop_score","rail_score",
+                  "fire_risk_score","cyclone_risk_score",
+                  "cooling_score","reliability_score")
+
+lga_centroids[numeric_cols] <- lapply(lga_centroids[numeric_cols], function(x) {
+  sapply(x, function(y) {
+    # Flatten list/matrix
+    y_vec <- unlist(y)
+    if (length(y_vec) == 0) return(NA)
+    # Drop units only if y_vec has class "units"
+    y_num <- if ("units" %in% class(y_vec)) drop_units(y_vec) else y_vec
+    # If multiple values, take mean
+    if (length(y_num) > 1) return(mean(y_num, na.rm = TRUE))
+    return(y_num)
+  })
+})
+
+# Now rowMeans 
+lga_centroids$composite_score <- (
+  (lga_centroids$power_score + lga_centroids$power_station_score + lga_centroids$transmission_score) / 3 * 0.35 +
+  (lga_centroids$pop_score + lga_centroids$rail_score) / 2 * 0.25 +
+  (lga_centroids$fire_risk_score + lga_centroids$cyclone_risk_score) / 2 * 0.15 +
+  lga_centroids$cooling_score * 0.15 +
+  lga_centroids$reliability_score * 0.10
+)
+
+
+lga_centroids <- lga_centroids %>%
+  dplyr::arrange(desc(composite_score)) %>%
+  dplyr::mutate(composite_rank = row_number())
+
+# Top 10 by composite score
+top10_composite <- lga_centroids %>%
+  dplyr::slice(1:10) %>%
+  dplyr::select(lga_name, state, composite_score, composite_rank)
+
+top10_composite
+
+ggplot() +
+  geom_sf(data = aus_sf, fill = "white", color = "gray50") +
+  geom_sf(data = lga_sf, fill = "lightblue", color = "gray30", alpha = 0.3) +
+  geom_sf(data = lga_centroids, aes(color = composite_score), size = 2) +
+  scale_color_viridis_c(option = "magma", name = "Composite Score") +
+  labs(title = "LGA Suitability Ranking Based on Composite Index",
+       subtitle = "Higher score = more suitable") +
+  theme_minimal()
+
+
+```
+
+```{r plotting}
+ggplot() +
+  geom_sf(data = aus_sf, fill = "white", color = "gray50") +
+  geom_sf(data = lga_sf, fill = "lightblue", color = "gray30", alpha = 0.3) +
+  geom_sf(data = transmission_lines_sf, color = "orange", size = 0.3, alpha = 0.5) +
+  geom_sf(data = substations_sf, color = "red", size = 1, alpha = 0.7) +
+  geom_sf(data = bushfire_sf, color = "darkred", size = 1, alpha = 0.5, shape = 3) +
+  geom_sf(data = top_lgas, aes(color = composite_score, size = composite_score), alpha = 0.8) +
+  scale_color_viridis_c(option = "plasma", name = "Optimality Score") +
+  scale_size_continuous(range = c(2, 6), guide = "none") +
+  labs(title = "Top 20 Optimal Data Center Locations by LGA",
+       subtitle = "Based on multiple infrastructure and environmental factors",
+       caption = "Red: Substations | Orange: Transmission lines | Purple: Cyclone paths | Red +: Bushfire risk") +
+  theme_minimal()
+
+
+ggplot() +
+  geom_sf(data = aus_sf, fill = "white", color = "gray50") +
+  geom_sf(data = lga_sf, fill = "lightblue", color = "gray30", alpha = 0.3) +
+  geom_sf(data = lga_centroids, aes(color = PC1_score), size = 2) +
+  scale_color_viridis_c(option = "plasma", name = "PC1 Score") +
+  labs(title = "LGA Suitability Ranking Based on PC1",
+       subtitle = "Higher PC1 score = more suitable") +
+  theme_minimal()
+
+
+lga_data_csv <- lga_centroids %>%
+  mutate(
+    longitude = st_coordinates(.)[,1],
+    latitude = st_coordinates(.)[,2]
+  ) %>%
+  st_drop_geometry()
+
+write_csv(lga_data_csv, "lga_data_center_analysis.csv")
+
+saveRDS(lga_centroids, "lga_data_center_analysis.rds")
+
+lga_centroids_clean <- lga_centroids %>%
+  mutate(across(where(is.list), ~ sapply(., function(x) paste(x, collapse = ", "))))
+
+tryCatch({
+  write_sf(lga_centroids_clean, "lga_data_center_analysis.gpkg")
+  print("GeoPackage export successful!")
+}, error = function(e) {
+  print(paste("GeoPackage export failed:", e$message))
+})
+
+top_10_lgas <- top_lgas %>%
+  head(10) %>%
+  st_drop_geometry() %>%
+  dplyr::select(lga_name, state, composite_score, pca_score) %>%
+  arrange(desc(composite_score))
+
+cat("=== DATA CENTER LOCATION ANALYSIS RESULTS ===\n")
+cat("Total LGAs analyzed:", nrow(lga_centroids), "\n\n")
+cat("Top 10 Optimal LGAs for Data Centers:\n")
+for (i in 1:nrow(top_10_lgas)) {
+  cat(i, ". ", top_10_lgas$lga_name[i], " (", top_10_lgas$state[i], 
+      ") - Score: ", round(top_10_lgas$composite_score[i], 3), "\n", sep = "")
+}
+
+cat("\nPCA Analysis Summary:\n")
+print(summary(pca_result))
+save.image("lga_data_center_analysis.RData")
+save(lga_centroids, top_lgas, pca_result, file = "lga_analysis_results.RData")
+
+```
